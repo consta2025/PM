@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ORAT Timeline v2 — Interactive Dashboard</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#1a56db;--blue-light:#e8eefb;--green:#16a34a;--green-light:#dcfce7;
+  --amber:#d97706;--amber-light:#fef3c7;--red:#dc2626;--red-light:#fee2e2;
+  --gray:#64748b;--gray-light:#f1f5f9;--gray-200:#e2e8f0;--gray-300:#cbd5e1;
+  --gray-800:#1e293b;--white:#ffffff;--bg:#f8fafc;
+  --shadow:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+  --shadow-lg:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -2px rgba(0,0,0,.05);
+  --radius:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--gray-800);line-height:1.5}
+.app{max-width:1400px;margin:0 auto;padding:16px 24px 40px}
+
+/* Header */
+header{display:flex;align-items:center;justify-content:space-between;padding:20px 0 8px;border-bottom:2px solid var(--blue);flex-wrap:wrap;gap:8px}
+header h1{font-size:1.6rem;font-weight:700;color:var(--blue)}
+.header-right{display:flex;align-items:center;gap:12px}
+header .date{font-size:.85rem;color:var(--gray)}
+
+/* Upload */
+.upload-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:var(--blue);color:var(--white);border:none;border-radius:6px;font-size:.82rem;font-weight:500;cursor:pointer;transition:background .15s}
+.upload-btn:hover{background:#1544b5}
+.upload-btn svg{width:16px;height:16px}
+.upload-msg{font-size:.75rem;color:var(--green);font-weight:500;opacity:0;transition:opacity .3s}
+.upload-msg.show{opacity:1}
+.upload-msg.error{color:var(--red)}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;margin:20px 0 16px;background:var(--gray-light);border-radius:var(--radius);padding:4px}
+.tab{flex:1;padding:10px 16px;border:none;background:transparent;font-size:.9rem;font-weight:500;color:var(--gray);cursor:pointer;border-radius:6px;transition:all .2s}
+.tab:hover{color:var(--gray-800)}
+.tab.active{background:var(--white);color:var(--blue);box-shadow:var(--shadow)}
+.tab-desc{font-size:.82rem;color:var(--gray);margin-bottom:16px;font-style:italic}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--white);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);text-align:center}
+.stat .num{font-size:1.5rem;font-weight:700}
+.stat .label{font-size:.75rem;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.stat.completed .num{color:var(--green)}
+.stat.in-progress .num{color:var(--blue)}
+.stat.upcoming .num{color:var(--amber)}
+.stat.risk .num{color:var(--red)}
+.stat.golive .num{color:var(--green);font-size:1.15rem}
+
+/* Filters */
+.filters{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.filter-btn{padding:6px 14px;border:1px solid var(--gray-300);background:var(--white);border-radius:20px;font-size:.8rem;cursor:pointer;transition:all .15s;color:var(--gray)}
+.filter-btn:hover{border-color:var(--blue);color:var(--blue)}
+.filter-btn.active{background:var(--blue);color:var(--white);border-color:var(--blue)}
+.filters-spacer{flex:1}
+.toggle-all-global{padding:6px 14px;border:1px solid var(--blue);background:var(--white);border-radius:20px;font-size:.78rem;cursor:pointer;transition:all .15s;color:var(--blue);font-weight:600;white-space:nowrap}
+.toggle-all-global:hover{background:var(--blue);color:var(--white)}
+
+/* Empty state */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 24px;text-align:center}
+.empty-icon{margin-bottom:20px;opacity:.8}
+.empty-title{font-size:1.4rem;font-weight:700;color:var(--gray-800);margin:0 0 10px}
+.empty-desc{font-size:.9rem;color:var(--gray);line-height:1.6;margin:0 0 28px;max-width:420px}
+.empty-upload-btn{font-size:1rem;padding:12px 28px}
+
+/* Gantt */
+.gantt-wrapper{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.gantt-scroll{overflow-x:auto;overflow-y:visible}
+.gantt{min-width:900px;position:relative}
+
+/* Month header */
+.month-header{display:flex;flex-direction:column;border-bottom:2px solid var(--gray-200);position:sticky;top:0;z-index:10;background:var(--white)}
+.month-header-dates{display:flex}
+.month-header-months{display:flex}
+.month-label-cell{flex-shrink:0;width:260px;padding:10px 16px;font-weight:600;font-size:.8rem;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;background:var(--white);position:sticky;left:0;z-index:11;border-right:1px solid var(--gray-200)}
+.month-labels{display:flex;flex:1;position:relative}
+.month-col{flex:1;text-align:center;padding:8px 0;font-size:.78rem;font-weight:600;color:var(--gray);border-left:1px solid var(--gray-200)}
+
+/* Date markers row */
+.date-marker-cell{flex-shrink:0;width:260px;background:var(--white);position:sticky;left:0;z-index:11;border-right:1px solid var(--gray-200)}
+.date-markers{flex:1;position:relative;height:22px}
+.date-marker{position:absolute;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:2px;pointer-events:none}
+.date-marker .marker-label{font-size:.55rem;font-weight:700;letter-spacing:.3px;text-transform:uppercase;padding:1px 5px;border-radius:3px;white-space:nowrap;line-height:1.3}
+.date-marker .marker-date{font-size:.6rem;font-weight:600;white-space:nowrap;line-height:1.3}
+.date-marker.start .marker-label{background:#e0e7ff;color:#3730a3}
+.date-marker.start .marker-date{color:#3730a3}
+.date-marker.today .marker-label{background:var(--amber-light);color:var(--amber)}
+.date-marker.today .marker-date{color:var(--amber)}
+.date-marker.golive .marker-label{background:var(--green-light);color:var(--green)}
+.date-marker.golive .marker-date{color:var(--green)}
+
+/* Task rows */
+.task-row{display:flex;border-bottom:1px solid #f0f2f5;transition:background .15s;position:relative}
+.task-row:hover{background:#f7f9fc}
+.task-row.group-header{background:var(--gray-light)}
+.task-name-cell{flex-shrink:0;width:260px;padding:8px 16px;font-size:.82rem;display:flex;align-items:center;gap:8px;position:sticky;left:0;background:inherit;z-index:5;border-right:1px solid var(--gray-200)}
+.task-name-cell::before{content:'';display:none}
+.task-row:hover .task-name-cell{background:inherit}
+.task-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-name-cell .status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.status-dot.completed{background:var(--green)}
+.status-dot.in-progress{background:var(--blue)}
+.status-dot.upcoming{background:var(--amber)}
+.status-dot.risk{background:var(--red)}
+
+.chart-area{flex:1;position:relative;display:flex;align-items:center;min-height:36px}
+
+/* Grid lines */
+.grid-lines{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;pointer-events:none}
+.grid-line{flex:1;border-left:1px solid #f0f2f5}
+
+/* Bars */
+.bar{position:absolute;height:20px;border-radius:4px;cursor:pointer;transition:transform .15s,box-shadow .15s;z-index:2;display:flex;align-items:center;padding:0 6px;font-size:.7rem;color:var(--white);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.bar:hover{transform:scaleY(1.25);box-shadow:var(--shadow-lg);z-index:3}
+.bar.completed{background:var(--green)}
+.bar.in-progress{background:var(--blue)}
+.bar.upcoming{background:var(--amber);color:var(--white)}
+.bar.risk{background:var(--red)}
+
+/* Milestones */
+.milestone{position:absolute;width:16px;height:16px;transform:rotate(45deg);cursor:pointer;z-index:3;transition:transform .15s,box-shadow .15s;border:2px solid var(--white);box-shadow:0 0 0 1px rgba(0,0,0,.15)}
+.milestone:hover{transform:rotate(45deg) scale(1.3);box-shadow:var(--shadow-lg)}
+.milestone.completed{background:var(--green)}
+.milestone.in-progress{background:var(--blue)}
+.milestone.upcoming{background:var(--amber)}
+.milestone.risk{background:var(--red)}
+.milestone.golive{background:var(--green);width:18px;height:18px;border:2px solid #15803d}
+
+/* Today line */
+.today-line{position:absolute;top:0;bottom:0;width:2px;background:var(--amber);z-index:4;pointer-events:none}
+.today-line::before{content:'Today';position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:.65rem;font-weight:600;color:var(--amber);white-space:nowrap;background:var(--amber-light);padding:1px 6px;border-radius:3px}
+
+/* Go-live line */
+.golive-line{position:absolute;top:0;bottom:0;width:2px;background:var(--green);z-index:4;pointer-events:none;border-left:2px dashed var(--green)}
+.golive-line::before{content:'Go-live';position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:.65rem;font-weight:600;color:var(--green);white-space:nowrap;background:var(--green-light);padding:1px 6px;border-radius:3px}
+
+/* Tooltip */
+.tooltip{position:fixed;background:var(--gray-800);color:var(--white);padding:10px 14px;border-radius:6px;font-size:.8rem;z-index:1000;pointer-events:none;max-width:320px;box-shadow:var(--shadow-lg);line-height:1.4;opacity:0;transition:opacity .15s}
+.tooltip.show{opacity:1}
+.tooltip .tt-name{font-weight:600;margin-bottom:4px}
+.tooltip .tt-dates{color:#94a3b8;font-size:.75rem}
+.tooltip .tt-pct{color:#94a3b8;font-size:.75rem}
+.tooltip .tt-status{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600;margin-top:4px}
+.tooltip .tt-status.completed{background:var(--green-light);color:var(--green)}
+.tooltip .tt-status.in-progress{background:var(--blue-light);color:var(--blue)}
+.tooltip .tt-status.upcoming{background:var(--gray-light);color:var(--gray)}
+.tooltip .tt-status.risk{background:var(--red-light);color:var(--red)}
+
+/* Legend */
+.legend{display:flex;gap:16px;margin-top:16px;justify-content:center;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--gray)}
+.legend-swatch{width:14px;height:14px;border-radius:3px}
+.legend-diamond{width:10px;height:10px;transform:rotate(45deg)}
+
+/* Group header */
+.group-label{font-weight:600;font-size:.78rem;color:var(--blue);text-transform:uppercase;letter-spacing:.5px}
+
+/* Timeline source badge (Overall tab) */
+.task-row.section-header{background:var(--blue);border-bottom:none}
+.task-row.section-header .task-name-cell{background:inherit}
+.section-label{font-weight:700;font-size:.82rem;color:var(--white);text-transform:uppercase;letter-spacing:.8px}
+.source-badge{font-size:.6rem;padding:2px 7px;border-radius:10px;font-weight:600;flex-shrink:0;letter-spacing:.3px}
+.source-badge.processes{background:#ede9fe;color:#7c3aed}
+.source-badge.people{background:#fce7f3;color:#db2777}
+.source-badge.technology{background:#e0f2fe;color:#0284c7}
+
+/* Collapse/expand */
+.section-header,.group-header{cursor:pointer;user-select:none}
+.chevron{display:inline-flex;align-items:center;justify-content:center;width:16px;font-size:.7rem;transition:transform .2s ease;flex-shrink:0}
+.chevron.collapsed{transform:rotate(-90deg)}
+.section-header .chevron{color:rgba(255,255,255,.7)}
+.group-header .chevron{color:var(--gray)}
+
+/* Summary bar on group headers */
+.summary-bar{background:var(--blue);opacity:.45;height:16px;border-radius:3px;font-size:.6rem;font-weight:600;letter-spacing:.3px;pointer-events:none}
+.group-header:hover .summary-bar{opacity:.6}
+
+/* Section summary bar */
+.section-summary-bar{position:absolute;height:16px;border-radius:3px;background:rgba(255,255,255,.25);z-index:2;pointer-events:none;font-size:.6rem;font-weight:600;color:rgba(255,255,255,.9);display:flex;align-items:center;padding:0 6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+/* Expand/collapse all button */
+.toggle-all-btn{font-size:.6rem;padding:1px 8px;border-radius:10px;border:1px solid rgba(255,255,255,.5);background:transparent;color:rgba(255,255,255,.85);cursor:pointer;font-weight:600;letter-spacing:.3px;margin-left:8px;white-space:nowrap;transition:background .15s,color .15s}
+.toggle-all-btn:hover{background:rgba(255,255,255,.2);color:#fff}
+
+/* Responsive */
+@media(max-width:768px){
+  .app{padding:12px}
+  header h1{font-size:1.2rem}
+  .stats{grid-template-columns:repeat(3,1fr)}
+  .task-name-cell{width:180px;font-size:.75rem;padding:6px 10px}
+}
+@media print{
+  .filters,.tabs,.upload-btn,.upload-msg{display:none}
+  .gantt-wrapper{box-shadow:none;border:1px solid var(--gray-200)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>ERP ORAT Timeline</h1>
+    <div class="header-right">
+      <span class="upload-msg" id="uploadMsg"></span>
+      <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"/></svg>
+        Upload Plan
+      </button>
+      <span class="date" id="dateLabel">As at 16 April 2026 — Source: Project Plan</span>
+    </div>
+  </header>
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none">
+  <div id="emptyState" class="empty-state">
+    <div class="empty-icon">
+      <svg viewBox="0 0 48 48" fill="none" width="64" height="64"><rect x="6" y="10" width="36" height="28" rx="4" stroke="var(--blue)" stroke-width="2.5" fill="var(--blue-light)"/><path d="M18 24l4 4 8-8" stroke="var(--blue)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <h2 class="empty-title">Upload your Project Plan</h2>
+    <p class="empty-desc">Upload an Excel file (.xlsx) to generate the ORAT timeline.<br>The file should include <strong>In Timeline</strong> and <strong>Timeline Type</strong> columns.</p>
+    <button class="upload-btn empty-upload-btn" onclick="document.getElementById('fileInput').click()">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"/></svg>
+      Upload Plan
+    </button>
+  </div>
+  <div id="timelineContent" style="display:none">
+    <div class="tabs" id="tabs"></div>
+    <div class="tab-desc" id="tabDesc"></div>
+    <div class="stats" id="stats"></div>
+    <div class="filters" id="filters"></div>
+    <div class="gantt-wrapper">
+      <div class="gantt-scroll">
+        <div class="gantt" id="gantt"></div>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ─── DYNAMIC RANGE STATE ───
+let TODAY = new Date(); TODAY.setHours(0,0,0,0);
+let RANGE_START, RANGE_END, TOTAL_DAYS, GOLIVE, MONTHS;
+
+function d(y,m,day){ return new Date(y,m-1,day); }
+
+function recalcRange(){
+  let minDate = new Date(2100,0,1), maxDate = new Date(2000,0,1);
+  GOLIVE = null;
+  Object.values(TIMELINES).forEach(tl=>{
+    if(!tl.groups) return;
+    tl.groups.forEach(g=>{
+      if(!g.tasks) return;
+      g.tasks.forEach(t=>{
+        if(t.start < minDate) minDate = new Date(t.start);
+        if(t.end > maxDate) maxDate = new Date(t.end);
+        if(t.golive && !GOLIVE) GOLIVE = new Date(t.start);
+      });
+    });
+  });
+  RANGE_START = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+  RANGE_END = new Date(maxDate.getFullYear(), maxDate.getMonth()+2, 0);
+  TOTAL_DAYS = (RANGE_END - RANGE_START) / 864e5;
+  if(!GOLIVE) GOLIVE = new Date(maxDate);
+
+  MONTHS = [];
+  const cur = new Date(RANGE_START);
+  while(cur < RANGE_END){
+    MONTHS.push({ label: cur.toLocaleString('en-AU',{month:'short',year:'2-digit'}), date: new Date(cur) });
+    cur.setMonth(cur.getMonth()+1);
+  }
+}
+
+function pct(date){ return ((date - RANGE_START) / 864e5) / TOTAL_DAYS * 100; }
+function fmtDate(date){
+  const dd = String(date.getDate()).padStart(2,'0');
+  const mm = String(date.getMonth()+1).padStart(2,'0');
+  const yy = String(date.getFullYear()).slice(2);
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return `${days[date.getDay()]} ${dd}/${mm}/${yy}`;
+}
+function daysBetween(a,b){ return Math.round((b - a) / 864e5); }
+function daysUntilGolive(){ return daysBetween(TODAY, GOLIVE); }
+
+// ─── TIMELINE DATA (populated by upload) ───
+const TIMELINES = {};
+
+// ─── BUILD "OVERALL" TAB ───
+function buildOverallTab(){
+  const seen = new Set();
+  const allGroups = [];
+  ['processes','people','technology'].forEach(key=>{
+    const tl = TIMELINES[key];
+    if(!tl) return;
+    allGroups.push({ label: tl.title, tasks: [], isSection: true, source: key });
+    tl.groups.forEach(group=>{
+      const dedupedTasks = group.tasks.filter(task=>{
+        if(task.type==='milestone' && task.name==='Go-live'){
+          if(seen.has('Go-live')) return false;
+          seen.add('Go-live');
+        }
+        return true;
+      });
+      if(dedupedTasks.length > 0){
+        allGroups.push({ label: group.label, tasks: dedupedTasks, source: key });
+      }
+    });
+  });
+  TIMELINES.overall = {
+    title: 'Overall',
+    subtitle: 'Combined view across Processes, People and Technology',
+    groups: allGroups
+  };
+  // Ensure overall is first
+  const reordered = { overall: TIMELINES.overall };
+  ['processes','people','technology'].forEach(k=>{ if(TIMELINES[k]) reordered[k] = TIMELINES[k]; });
+  Object.keys(TIMELINES).forEach(k=> delete TIMELINES[k]);
+  Object.assign(TIMELINES, reordered);
+}
+
+// ─── EXCEL UPLOAD HANDLER ───
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const msg = document.getElementById('uploadMsg');
+  msg.className = 'upload-msg show';
+  msg.textContent = 'Processing…';
+
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    try {
+      const data = new Uint8Array(ev.target.result);
+      const wb = XLSX.read(data, { type:'array', cellDates:false, raw:false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' });
+
+      if(rows.length < 2){ throw new Error('Empty spreadsheet'); }
+
+      // Find column indices
+      const hdr = rows[0].map(h=> String(h).trim());
+      const COL = {};
+      COL.taskName = hdr.indexOf('Task Name');
+      COL.pctComplete = hdr.indexOf('% Complete');
+      COL.duration = hdr.indexOf('Duration');
+      COL.start = hdr.indexOf('Start');
+      COL.finish = hdr.indexOf('Finish');
+      COL.summaryName = hdr.indexOf('Task Summary Name');
+      COL.inTimeline = hdr.indexOf('In Timeline');
+      COL.timelineType = hdr.indexOf('Timeline Type');
+      // Second "Status" column (column T) — use lastIndexOf
+      COL.status = hdr.lastIndexOf('Status');
+
+      const required = ['taskName','inTimeline','timelineType','start','finish','duration','status'];
+      for(const k of required){
+        if(COL[k] === -1) throw new Error('Missing column: ' + k);
+      }
+
+      // Parse all rows to build parent lookup
+      const parsed = { processes:[], people:[], technology:[] };
+      let count = 0;
+
+      for(let i = 1; i < rows.length; i++){
+        const row = rows[i];
+        if(!row || row.length === 0) continue;
+
+        const inTL = String(row[COL.inTimeline]||'').trim().toLowerCase();
+        if(inTL !== 'yes' && inTL !== 'y') continue;
+
+        const tlType = String(row[COL.timelineType]||'').trim().toLowerCase();
+        if(!parsed[tlType]) continue;
+
+        const taskName = String(row[COL.taskName]||'').trim();
+        if(!taskName) continue;
+
+        const startDate = parseAUDate(String(row[COL.start]||''));
+        const endDate = parseAUDate(String(row[COL.finish]||''));
+        if(!startDate || !endDate) continue;
+
+        const dur = String(row[COL.duration]||'').trim();
+        const isMilestone = dur === '0 days';
+        const statusRaw = String(row[COL.status]||'').trim();
+        const pcRaw = String(row[COL.pctComplete]||'0%').replace('%','');
+        const pc = parseInt(pcRaw) || 0;
+        const groupName = String(row[COL.summaryName]||'').trim() || 'Other';
+        const isGolive = taskName.toLowerCase().replace(/[\s\-]/g,'') === 'golive';
+
+        parsed[tlType].push({
+          name: taskName,
+          start: startDate,
+          end: endDate,
+          type: isMilestone ? 'milestone' : 'task',
+          status: mapStatus(statusRaw),
+          pc: pc,
+          golive: isGolive && isMilestone,
+          _group: groupName
+        });
+        count++;
+      }
+
+      if(count === 0) throw new Error('No tasks with "In Timeline = Y" found');
+
+      // Rebuild TIMELINES from parsed data
+      const subtitles = {
+        processes:'Processes, Support Model and Governance',
+        people:'Recruitment, MSP, Training & Knowledge and Team Logistics',
+        technology:'Software build, reporting, set up tools, tech decommissioning'
+      };
+
+      // Snapshot previous state for diff (keyed by type::group::name)
+      const prevTasks = new Map();
+      ['processes','people','technology'].forEach(type=>{
+        const tl = TIMELINES[type];
+        if(!tl) return;
+        tl.groups.forEach(g=>{
+          g.tasks.forEach(t=>{
+            const key = type+'::'+g.label+'::'+t.name;
+            prevTasks.set(key, { start:t.start.getTime(), end:t.end.getTime(), status:t.status, pc:t.pc||0 });
+          });
+        });
+      });
+
+      // Clear existing
+      Object.keys(TIMELINES).forEach(k=> delete TIMELINES[k]);
+
+      ['processes','people','technology'].forEach(type=>{
+        const tasks = parsed[type];
+        // Group by _group (Task Summary Name)
+        const gmap = {};
+        tasks.forEach(t=>{
+          const g = t._group;
+          if(!gmap[g]) gmap[g] = [];
+          gmap[g].push(t);
+        });
+
+        // Sort groups by earliest start
+        const groups = Object.entries(gmap)
+          .sort((a,b)=> Math.min(...a[1].map(t=>t.start.getTime())) - Math.min(...b[1].map(t=>t.start.getTime())))
+          .map(([label, tasks])=>({
+            label: label,
+            tasks: tasks.sort((a,b)=> a.start - b.start)
+          }));
+
+        TIMELINES[type] = {
+          title: type.charAt(0).toUpperCase()+type.slice(1),
+          subtitle: subtitles[type]||'',
+          groups: groups
+        };
+      });
+
+      buildOverallTab();
+      recalcRange();
+      activeTab = 'overall';
+      activeFilter = 'all';
+      collapsedSections.clear();
+      collapsedGroups.clear();
+
+      // Update header — extract date from filename
+      // Normalise any unicode dashes/hyphens to ASCII hyphen before matching
+      const normName = file.name.replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-');
+      let dateStr;
+      // Try YYYY-MM-DD or YYYY.MM.DD or YYYYMMDD
+      const isoMatch = normName.match(/(\d{4})[\-\.\/](\d{2})[\-\.\/](\d{2})/) || normName.match(/(\d{4})(\d{2})(\d{2})/);
+      if(isoMatch){
+        const y = parseInt(isoMatch[1]), m = parseInt(isoMatch[2]), dd = parseInt(isoMatch[3]);
+        if(m >= 1 && m <= 12 && dd >= 1 && dd <= 31){
+          dateStr = new Date(y, m-1, dd).toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'});
+        }
+      }
+      // Fallback: try DD-MM-YYYY or DD/MM/YYYY
+      if(!dateStr){
+        const dmyMatch = normName.match(/(\d{1,2})[\-\.\/](\d{1,2})[\-\.\/](\d{4})/);
+        if(dmyMatch){
+          const dd = parseInt(dmyMatch[1]), m = parseInt(dmyMatch[2]), y = parseInt(dmyMatch[3]);
+          if(m >= 1 && m <= 12) dateStr = new Date(y, m-1, dd).toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'});
+        }
+      }
+      // Fallback: try DDMMM (e.g. "16APR")
+      if(!dateStr){
+        const monthMap = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+        const fnMatch = normName.match(/(\d{1,2})\s*([A-Za-z]{3})/);
+        if(fnMatch){
+          const mon = monthMap[fnMatch[2].toLowerCase()];
+          if(mon !== undefined){
+            const year = GOLIVE ? GOLIVE.getFullYear() : new Date().getFullYear();
+            dateStr = new Date(year, mon, parseInt(fnMatch[1])).toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'});
+          }
+        }
+      }
+      if(!dateStr){
+        dateStr = new Date().toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'});
+      }
+      document.getElementById('dateLabel').textContent = 'As at ' + dateStr + ' — Source: ' + file.name;
+
+      // Persist to localStorage (serialise dates as ISO strings)
+      try {
+        const save = {};
+        ['processes','people','technology'].forEach(k=>{
+          const tl = TIMELINES[k];
+          if(!tl) return;
+          save[k] = { title:tl.title, subtitle:tl.subtitle, groups:tl.groups.map(g=>({
+            label:g.label,
+            tasks:g.tasks.map(t=>({ name:t.name, start:t.start.toISOString(), end:t.end.toISOString(), type:t.type, status:t.status, pc:t.pc, golive:t.golive||false }))
+          }))};
+        });
+        localStorage.setItem('orat_timelines', JSON.stringify(save));
+        localStorage.setItem('orat_dateLabel', document.getElementById('dateLabel').textContent);
+      } catch(e){}
+
+      // Show timeline, hide empty state
+      const es = document.getElementById('emptyState');
+      if(es) es.remove();
+      document.getElementById('timelineContent').style.cssText = 'display:block';
+
+      render();
+
+      // Compute diff: new, changed, deleted
+      const newKeys = new Set();
+      let added = 0, changed = 0;
+      ['processes','people','technology'].forEach(type=>{
+        const tl = TIMELINES[type];
+        if(!tl) return;
+        tl.groups.forEach(g=>{
+          g.tasks.forEach(t=>{
+            const key = type+'::'+g.label+'::'+t.name;
+            newKeys.add(key);
+            const prev = prevTasks.get(key);
+            if(!prev){ added++; return; }
+            if(prev.start !== t.start.getTime() || prev.end !== t.end.getTime() || prev.status !== t.status || (prev.pc||0) !== (t.pc||0)) changed++;
+          });
+        });
+      });
+      let deleted = 0;
+      prevTasks.forEach((_,key)=>{ if(!newKeys.has(key)) deleted++; });
+
+      msg.className = 'upload-msg show';
+      if(prevTasks.size === 0){
+        msg.textContent = count + ' tasks loaded';
+      } else if(added === 0 && changed === 0 && deleted === 0){
+        msg.textContent = 'No changes (' + count + ' tasks)';
+      } else {
+        const parts = [];
+        if(added) parts.push(added + ' new');
+        if(changed) parts.push(changed + ' changed');
+        if(deleted) parts.push(deleted + ' deleted');
+        msg.textContent = parts.join(' · ');
+      }
+      setTimeout(()=>{ msg.className = 'upload-msg'; }, 5000);
+
+    } catch(err){
+      msg.className = 'upload-msg show error';
+      msg.textContent = 'Error: ' + err.message;
+      setTimeout(()=>{ msg.className = 'upload-msg'; }, 6000);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = ''; // allow re-upload of same file
+});
+
+function parseAUDate(str){
+  if(!str) return null;
+  // Handle "Day DD/MM/YY" or "DD/MM/YY" or "DD/MM/YYYY"
+  const parts = str.trim().split(' ');
+  const dateStr = parts.length > 1 ? parts[parts.length-1] : parts[0];
+  const dp = dateStr.split('/');
+  if(dp.length !== 3) return null;
+  const day = parseInt(dp[0]);
+  const month = parseInt(dp[1]) - 1;
+  let year = parseInt(dp[2]);
+  if(year < 100) year += 2000;
+  if(isNaN(day)||isNaN(month)||isNaN(year)) return null;
+  return new Date(year, month, day);
+}
+
+function mapStatus(s){
+  const lower = s.toLowerCase();
+  if(lower === 'complete' || lower === 'completed') return 'completed';
+  if(lower === 'on schedule') return 'in-progress';
+  if(lower === 'late') return 'risk';
+  return 'upcoming'; // Future Task, Not Started, etc.
+}
+
+// ─── STATE ───
+let activeTab = 'overall';
+let activeFilter = 'all';
+const collapsedSections = new Set();
+const collapsedGroups = new Set();
+
+// ─── RENDER ───
+function renderTabs(){
+  const el = document.getElementById('tabs');
+  el.innerHTML = Object.entries(TIMELINES).map(([key,tl])=>
+    `<button class="tab ${key===activeTab?'active':''}" data-tab="${key}">${tl.title}</button>`
+  ).join('');
+  el.querySelectorAll('.tab').forEach(btn=>{
+    btn.addEventListener('click',()=>{ activeTab=btn.dataset.tab; activeFilter='all'; render(); });
+  });
+}
+
+function getAllTasks(tl){
+  return tl.groups.flatMap(g=>g.tasks);
+}
+
+function renderStats(){
+  const tl = TIMELINES[activeTab];
+  const tasks = getAllTasks(tl);
+  const total = tasks.length;
+  const completed = tasks.filter(t=>t.status==='completed').length;
+  const inProgress = tasks.filter(t=>t.status==='in-progress').length;
+  const upcoming = tasks.filter(t=>t.status==='upcoming').length;
+  const risk = tasks.filter(t=>t.status==='risk').length;
+  const daysToGo = daysUntilGolive();
+
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="num">${total}</div><div class="label">Total Items</div></div>
+    <div class="stat completed"><div class="num">${completed}</div><div class="label">Completed</div></div>
+    <div class="stat in-progress"><div class="num">${inProgress}</div><div class="label">In Progress</div></div>
+    <div class="stat upcoming"><div class="num">${upcoming}</div><div class="label">Upcoming</div></div>
+    <div class="stat risk"><div class="num">${risk}</div><div class="label">Late</div></div>
+    <div class="stat golive"><div class="num">${daysToGo} days</div><div class="label">Until Go-live</div></div>
+  `;
+}
+
+function getTabGroupIds(){
+  const tl = TIMELINES[activeTab];
+  const ids = [];
+  let curSec = null;
+  tl.groups.forEach(group=>{
+    if(group.isSection){ curSec = group.source || group.label.toLowerCase(); return; }
+    const src = group.source || activeTab;
+    ids.push(src + '::' + group.label);
+  });
+  return ids;
+}
+
+function renderFilters(){
+  const statuses = ['all','completed','in-progress','upcoming','risk'];
+  const labels = { all:'All', completed:'Completed', 'in-progress':'On Schedule', upcoming:'Future Task', risk:'Late' };
+  const ids = getTabGroupIds();
+  const allCollapsed = ids.length > 0 && ids.every(id=>collapsedGroups.has(id));
+  const toggleLabel = allCollapsed ? 'Expand All' : 'Collapse All';
+
+  document.getElementById('filters').innerHTML = statuses.map(s=>
+    `<button class="filter-btn ${s===activeFilter?'active':''}" data-filter="${s}">${labels[s]}</button>`
+  ).join('') + `<div class="filters-spacer"></div><button class="toggle-all-global" id="toggleAllBtn">${toggleLabel}</button>`;
+
+  document.querySelectorAll('.filter-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{ activeFilter=btn.dataset.filter; render(); });
+  });
+  document.getElementById('toggleAllBtn').addEventListener('click',()=>{
+    const ids = getTabGroupIds();
+    const allCollapsed = ids.every(id=>collapsedGroups.has(id));
+    ids.forEach(id=>{ if(allCollapsed) collapsedGroups.delete(id); else collapsedGroups.add(id); });
+    render();
+  });
+}
+
+function renderGantt(){
+  const tl = TIMELINES[activeTab];
+  const gantt = document.getElementById('gantt');
+
+  const startPct = pct(RANGE_START);
+  const todayPct = pct(TODAY);
+  const golivePct = pct(GOLIVE);
+  const fmtShort = d => `${d.getDate()}/${d.getMonth()+1}/${String(d.getFullYear()).slice(2)}`;
+
+  let html = `<div class="month-header">
+    <div class="month-header-dates">
+      <div class="date-marker-cell"></div>
+      <div class="date-markers">
+        <div class="date-marker start" style="left:${startPct}%"><span class="marker-label">Start</span><span class="marker-date">${fmtShort(RANGE_START)}</span></div>
+        <div class="date-marker today" style="left:${todayPct}%"><span class="marker-label">Today</span><span class="marker-date">${fmtShort(TODAY)}</span></div>
+        <div class="date-marker golive" style="left:${golivePct}%"><span class="marker-label">Go-live</span><span class="marker-date">${fmtShort(GOLIVE)}</span></div>
+      </div>
+    </div>
+    <div class="month-header-months">
+      <div class="month-label-cell">Activity</div>
+      <div class="month-labels">${MONTHS.map(m=>`<div class="month-col">${m.label}</div>`).join('')}</div>
+    </div>
+  </div>`;
+
+  // Pre-compute section aggregate date ranges (for section summary bars)
+  const sectionAgg = {};
+  let curSec = null;
+  tl.groups.forEach(group=>{
+    if(group.isSection){ curSec = group.source || group.label.toLowerCase(); sectionAgg[curSec] = { min:new Date(2100,0,1), max:new Date(2000,0,1), groupIds:[] }; return; }
+    if(!curSec) return;
+    const src = group.source || activeTab;
+    sectionAgg[curSec].groupIds.push(src + '::' + group.label);
+    const tasks = activeFilter==='all' ? group.tasks : group.tasks.filter(t=>t.status===activeFilter);
+    tasks.forEach(t=>{
+      if(t.start < sectionAgg[curSec].min) sectionAgg[curSec].min = new Date(t.start);
+      if(t.end > sectionAgg[curSec].max) sectionAgg[curSec].max = new Date(t.end);
+    });
+  });
+
+  let currentSection = null;
+  tl.groups.forEach(group=>{
+    if(group.isSection){
+      currentSection = group.source || group.label.toLowerCase();
+      const secCollapsed = collapsedSections.has(currentSection);
+      const agg = sectionAgg[currentSection];
+      const hasRange = agg && agg.min < agg.max;
+      const secLeft = hasRange ? pct(agg.min) : 0;
+      const secWidth = hasRange ? Math.max(((agg.max - agg.min) / 864e5) / TOTAL_DAYS * 100, 0.6) : 0;
+
+      // Determine if all child groups are collapsed or expanded
+      const allCollapsed = agg && agg.groupIds.length > 0 && agg.groupIds.every(id=>collapsedGroups.has(id));
+      const toggleLabel = allCollapsed ? 'Expand All' : 'Collapse All';
+
+      html += `<div class="task-row section-header" data-section="${currentSection}">
+        <div class="task-name-cell"><span class="chevron${secCollapsed?' collapsed':''}">▾</span><span class="section-label">${group.label}</span><button class="toggle-all-btn" data-sec-toggle="${currentSection}">${toggleLabel}</button></div>
+        <div class="chart-area" style="background:var(--blue);position:relative"><div class="grid-lines">${MONTHS.map(()=>'<div class="grid-line" style="border-color:rgba(255,255,255,.15)"></div>').join('')}</div>${hasRange?`<div class="section-summary-bar" style="left:${secLeft}%;width:${secWidth}%">${group.label}</div>`:''}</div>
+      </div>`;
+      return;
+    }
+
+    // Skip if parent section is collapsed (Overall tab)
+    if(activeTab==='overall' && currentSection && collapsedSections.has(currentSection)) return;
+
+    const filteredTasks = activeFilter==='all' ? group.tasks : group.tasks.filter(t=>t.status===activeFilter);
+    if(filteredTasks.length === 0) return;
+
+    const groupSource = group.source || activeTab;
+    const groupId = groupSource + '::' + group.label;
+    const isGroupCollapsed = collapsedGroups.has(groupId);
+
+    const sourceBadge = group.source ? `<span class="source-badge ${group.source}">${TIMELINES[group.source]?.title||''}</span>` : '';
+
+    // Compute aggregate span from sub-tasks
+    let grpMin = new Date(2100,0,1), grpMax = new Date(2000,0,1);
+    filteredTasks.forEach(t=>{
+      if(t.start < grpMin) grpMin = new Date(t.start);
+      if(t.end > grpMax) grpMax = new Date(t.end);
+    });
+    const grpLeft = pct(grpMin);
+    const grpWidth = Math.max(((grpMax - grpMin) / 864e5) / TOTAL_DAYS * 100, 0.6);
+
+    html += `<div class="task-row group-header" data-group="${esc(groupId)}">
+      <div class="task-name-cell"><span class="chevron${isGroupCollapsed?' collapsed':''}">▾</span><span class="group-label">${group.label}</span>${activeTab==='overall'?sourceBadge:''}</div>
+      <div class="chart-area" style="position:relative"><div class="grid-lines">${MONTHS.map(()=>'<div class="grid-line"></div>').join('')}</div>
+        <div class="bar summary-bar" style="left:${grpLeft}%;width:${grpWidth}%">${group.label}</div>
+      </div>
+    </div>`;
+
+    if(isGroupCollapsed) return;
+
+    filteredTasks.forEach(task=>{
+      const leftPct = pct(task.start);
+      const isMilestone = task.type === 'milestone';
+      const duration = daysBetween(task.start, task.end);
+
+      html += `<div class="task-row">
+        <div class="task-name-cell">
+          <span class="status-dot ${task.status}"></span>
+          <span class="task-name" title="${task.name}">${task.name}</span>
+        </div>
+        <div class="chart-area" style="position:relative">
+          <div class="grid-lines">${MONTHS.map(()=>'<div class="grid-line"></div>').join('')}</div>`;
+
+      if(isMilestone){
+        html += `<div class="milestone ${task.status}${task.golive?' golive':''}"
+          style="left:calc(${leftPct}% - 8px)"
+          data-name="${esc(task.name)}" data-start="${fmtDate(task.start)}" data-end="${fmtDate(task.end)}" data-status="${task.status}" data-duration="${duration}" data-pc="${task.pc||0}"></div>`;
+      } else {
+        const widthPct = Math.max(((task.end - task.start) / 864e5) / TOTAL_DAYS * 100, 0.6);
+        const barLabel = widthPct > 5 ? task.name : '';
+        html += `<div class="bar ${task.status}"
+          style="left:${leftPct}%;width:${widthPct}%"
+          data-name="${esc(task.name)}" data-start="${fmtDate(task.start)}" data-end="${fmtDate(task.end)}" data-status="${task.status}" data-duration="${duration}" data-pc="${task.pc||0}">${barLabel}</div>`;
+      }
+
+      html += `</div></div>`;
+    });
+  });
+
+  gantt.innerHTML = html;
+
+  // Collapse/expand click handlers
+  gantt.querySelectorAll('.section-header[data-section]').forEach(el=>{
+    el.addEventListener('click',(e)=>{
+      // If the toggle-all button was clicked, let its own handler run instead
+      if(e.target.closest('.toggle-all-btn')) return;
+      const sec = el.dataset.section;
+      if(collapsedSections.has(sec)) collapsedSections.delete(sec); else collapsedSections.add(sec);
+      renderGantt();
+    });
+  });
+  // Expand All / Collapse All buttons
+  gantt.querySelectorAll('.toggle-all-btn[data-sec-toggle]').forEach(btn=>{
+    btn.addEventListener('click',(e)=>{
+      e.stopPropagation();
+      const sec = btn.dataset.secToggle;
+      const agg = sectionAgg[sec];
+      if(!agg) return;
+      const allCollapsed = agg.groupIds.every(id=>collapsedGroups.has(id));
+      agg.groupIds.forEach(id=>{ if(allCollapsed) collapsedGroups.delete(id); else collapsedGroups.add(id); });
+      renderGantt();
+    });
+  });
+  gantt.querySelectorAll('.group-header[data-group]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const grp = el.dataset.group;
+      if(collapsedGroups.has(grp)) collapsedGroups.delete(grp); else collapsedGroups.add(grp);
+      renderGantt();
+    });
+  });
+
+  gantt.querySelectorAll('.chart-area').forEach((area, idx)=>{
+    if(idx === 0){
+      const todayEl = document.createElement('div');
+      todayEl.className = 'today-line';
+      todayEl.style.left = pct(TODAY) + '%';
+      area.appendChild(todayEl);
+      const goliveEl = document.createElement('div');
+      goliveEl.className = 'golive-line';
+      goliveEl.style.left = pct(GOLIVE) + '%';
+      area.appendChild(goliveEl);
+    } else {
+      const todayEl = document.createElement('div');
+      todayEl.style.cssText = `position:absolute;top:0;bottom:0;width:2px;background:var(--amber);z-index:4;pointer-events:none;left:${pct(TODAY)}%`;
+      area.appendChild(todayEl);
+      const goliveEl = document.createElement('div');
+      goliveEl.style.cssText = `position:absolute;top:0;bottom:0;width:0;border-left:2px dashed var(--green);z-index:4;pointer-events:none;left:${pct(GOLIVE)}%`;
+      area.appendChild(goliveEl);
+    }
+  });
+
+  const tooltip = document.getElementById('tooltip');
+  gantt.querySelectorAll('.bar, .milestone').forEach(el=>{
+    el.addEventListener('mouseenter', e=>{
+      const r = el.getBoundingClientRect();
+      const statusLabels = { completed:'Completed', 'in-progress':'On Schedule', upcoming:'Future Task', risk:'Late' };
+      const dur = parseInt(el.dataset.duration);
+      const durText = dur === 0 ? 'Milestone' : `${dur} day${dur!==1?'s':''}`;
+      const pcVal = parseInt(el.dataset.pc);
+      const pcText = dur > 0 ? `<div class="tt-pct">${pcVal}% complete</div>` : '';
+      tooltip.innerHTML = `
+        <div class="tt-name">${el.dataset.name}</div>
+        <div class="tt-dates">${el.dataset.start}${dur>0?' — '+el.dataset.end:''}</div>
+        <div class="tt-dates">${durText}</div>
+        ${pcText}
+        <span class="tt-status ${el.dataset.status}">${statusLabels[el.dataset.status]}</span>`;
+      tooltip.classList.add('show');
+      positionTooltip(r);
+    });
+    el.addEventListener('mousemove', e=>{ positionTooltip(el.getBoundingClientRect()); });
+    el.addEventListener('mouseleave',()=>{ tooltip.classList.remove('show'); });
+  });
+}
+
+function positionTooltip(rect){
+  const tooltip = document.getElementById('tooltip');
+  tooltip.style.left = (rect.left + rect.width/2) + 'px';
+  tooltip.style.top = (rect.top - 10) + 'px';
+  tooltip.style.transform = 'translate(-50%, -100%)';
+  requestAnimationFrame(()=>{
+    const tr = tooltip.getBoundingClientRect();
+    if(tr.left < 8) tooltip.style.left = (8 + tr.width/2) + 'px';
+    if(tr.right > window.innerWidth - 8) tooltip.style.left = (window.innerWidth - 8 - tr.width/2) + 'px';
+    if(tr.top < 8){ tooltip.style.top = (rect.bottom + 10) + 'px'; tooltip.style.transform = 'translate(-50%, 0)'; }
+  });
+}
+
+function renderLegend(){
+  document.getElementById('legend').innerHTML = `
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--green)"></div>Completed</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--blue)"></div>On Schedule</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--amber)"></div>Future Task</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--red)"></div>Late</div>
+    <div class="legend-item"><div class="legend-diamond" style="background:var(--amber);transform:rotate(45deg)"></div>Milestone</div>
+    <div class="legend-item"><div style="width:2px;height:14px;background:var(--amber)"></div>Today</div>
+    <div class="legend-item"><div style="width:0;height:14px;border-left:2px dashed var(--green)"></div>Go-live</div>
+  `;
+}
+
+function esc(s){ return s.replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function render(){
+  renderTabs();
+  document.getElementById('tabDesc').textContent = TIMELINES[activeTab].subtitle;
+  renderStats();
+  renderFilters();
+  renderGantt();
+  renderLegend();
+}
+
+// ─── INIT ───
+(function(){
+  const saved = localStorage.getItem('orat_timelines');
+  if(saved){
+    try {
+      const data = JSON.parse(saved);
+      Object.keys(TIMELINES).forEach(k=> delete TIMELINES[k]);
+      ['processes','people','technology'].forEach(k=>{
+        if(!data[k]) return;
+        TIMELINES[k] = {
+          title: data[k].title,
+          subtitle: data[k].subtitle,
+          groups: data[k].groups.map(g=>({
+            label: g.label,
+            tasks: g.tasks.map(t=>({ name:t.name, start:new Date(t.start), end:new Date(t.end), type:t.type, status:t.status, pc:t.pc, golive:t.golive||false }))
+          }))
+        };
+      });
+      buildOverallTab();
+      recalcRange();
+      activeTab = 'overall';
+
+      const es = document.getElementById('emptyState');
+      if(es) es.remove();
+      document.getElementById('timelineContent').style.cssText = 'display:block';
+      document.getElementById('dateLabel').textContent = localStorage.getItem('orat_dateLabel') || '';
+
+      render();
+      return;
+    } catch(e){}
+  }
+  // No saved data — show empty upload screen
+  document.getElementById('dateLabel').textContent = '';
+})();
+</script>
+</body>
+</html>
